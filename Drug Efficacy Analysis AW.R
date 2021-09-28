@@ -6,7 +6,6 @@ library(survminer)
 library(ggplot2)
 library(tableone)
 library(MatchIt)
-install.packages("naniar")
 library(naniar)
 
 
@@ -75,7 +74,7 @@ m_ps <- glm(treatment_variable ~ age_group + sex
             +diagnosis_4+diagnosis_7+diagnosis_9
             +diagnosis_10+diagnosis_11+diagnosis_12
             +diagnosis_13+diagnosis_14+diagnosis_15
-            +lab_3+lab_5+lab_6+lab_7+lab_8
+            +lab_5+lab_8
             +Diag_Score_1+Diag_Score_2,
             family = binomial(), data = dfDrug)
 summary(m_ps)
@@ -97,8 +96,10 @@ prs_df %>%
 
 #matching using matchit, covariates significant from logit model
 match.it <- matchit(treatment_variable ~ age_group + sex
-                    +other_drugs_5+diagnosis_2+diagnosis_3
-                    +diagnosis_11+diagnosis_13+Diag_Score_2, 
+                    +other_drugs_2+diagnosis_2+diagnosis_3
+                    +diagnosis_4+diagnosis_7+diagnosis_9
+                    +diagnosis_10+diagnosis_11+diagnosis_12
+                    +diagnosis_13+Diag_Score_1, 
                     data = dfDrug, method="nearest", distance = "logit", ratio=1)
 a <- summary(match.it)
 
@@ -109,13 +110,18 @@ knitr::kable(a$nn, digits = 2, align = 'c',
 df.match <- match.data(match.it)[1:ncol(dfDrug)]
 
 #examine covariate balance in matched sample
-table2 <- CreateTableOne(vars = c('age_group', 'sex',
-                                  'other_drugs_5','diagnosis_2','diagnosis_3',
-                                  'diagnosis_11','diagnosis_13','Diag_Score_2'), 
+
+table2 <- CreateTableOne(vars = c('age_group', 'sex', 'Bleeding_event',
+                                  'other_drugs_2','diagnosis_2','diagnosis_3','diagnosis_4',
+                                  'diagnosis_7','diagnosis_9','diagnosis_10','diagnosis_11',
+                                  'diagnosis_12','diagnosis_13',
+                                  'Diag_Score_1'), 
                          data = df.match, 
-                         factorVars = c('age_group', 'sex',
-                                        'other_drugs_5','diagnosis_2','diagnosis_3',
-                                        'diagnosis_11','diagnosis_13','Diag_Score_2'),
+                         factorVars = c('age_group', 'sex', 'Bleeding_event',
+                                        'other_drugs_2','diagnosis_2','diagnosis_3','diagnosis_4',
+                                        'diagnosis_7','diagnosis_9','diagnosis_10','diagnosis_11',
+                                        'diagnosis_12','diagnosis_13',
+                                        'Diag_Score_1'),
                          strata = 'treatment_variable')
 table2
 
@@ -140,6 +146,8 @@ survfit1 # 17036 patients, 3164 events
 # Survival curve by treatment
 fit1 <- survfit(surv_object ~ treatment_variable, data = df.match)
 summary(fit1)
+surv_diff <- survdiff(surv_object ~ treatment_variable, data = df.match)
+surv_diff
 
 # Plot survival curve
 ggsurvplot(fit1, data = df.match, 
@@ -151,9 +159,12 @@ ggsurvplot(fit1, data = df.match,
            ggtheme = theme_minimal())
 
 #apply univariate coxph function to multiple co-variates
+
 covariates <- c('age_group', 'sex',
-                'other_drugs_5','diagnosis_2','diagnosis_3',
-                'diagnosis_11','diagnosis_13','Diag_Score_2')
+                'other_drugs_2','diagnosis_2','diagnosis_3','diagnosis_4',
+                'diagnosis_7','diagnosis_9','diagnosis_10','diagnosis_11',
+                'diagnosis_12','diagnosis_13',
+                'Diag_Score_1')
 univ_formulas <- sapply(covariates,
                         function(x) as.formula(paste('surv_object~', x)))
 
@@ -189,9 +200,11 @@ as.data.frame(res)
 
 ## Fit a Cox proportional hazards model
 
-fit.coxph <- coxph(surv_object ~treatment_variable+age_group + sex
-                  +other_drugs_5+diagnosis_2+diagnosis_3
-                  +diagnosis_11+diagnosis_13+Diag_Score_2,
+fit.coxph <- coxph(surv_object ~treatment_variable+age_group+sex
+                   +other_drugs_2+diagnosis_2+diagnosis_3
+                   +diagnosis_4+diagnosis_7+diagnosis_9
+                   +diagnosis_10+diagnosis_11+diagnosis_12
+                   +diagnosis_13+Diag_Score_1,
                   data = df.match)
 summary(fit.coxph)
 
@@ -203,33 +216,11 @@ car::vif(fit.coxph)
 
 ggforest(fit.coxph, data = df.match)
 
-# Visualize estimated distribution of survival times
-# Plot the baseline survival function
-ggsurvplot(survfit(fit.coxph, data = df.match), palette = "#2E9FDF",
-           ggtheme = theme_minimal())
-
-# Create the new data, covariates fixed to average/ lowest level  
-data = df.match
-treat_df <- with(df.match,
-               data.frame(treatment_variable = c(1, 2),
-                          age_group = c(1,1),
-                          sex = c(1,1),
-                          other_drugs_5 = c(1,1),
-                          diagnosis_2 = c(1,1),
-                          diagnosis_3 = c(1,1),
-                          diagnosis_11 = c(1,1),
-                          diagnosis_13 = c(1,1),
-                          Diag_Score_2 = c(0,0)
-               )
-      )
-str(treat_df)
-
-#Survival curves
-treat_df[sapply(treat_df, is.numeric)] <- lapply(treat_df[sapply(treat_df, is.numeric)], as.factor)
-
-fit2 <- survfit(fit.coxph, newdata = treat_df)
-ggsurvplot(fit2, data = treat_df, 
-           conf.int = TRUE, 
-           legend.labs=c("Drug A", "Drug B"),
-           ggtheme = theme_minimal())
-
+# Visualize cumulative hazard
+ggsurvplot(fit1,
+           conf.int = TRUE,
+           risk.table.col = "strata", # Change risk table color by groups
+           ggtheme = theme_bw(), # Change ggplot2 theme
+           legend.labs = 
+             c("Drug A", "Drug B"), 
+           fun = "cumhaz")
